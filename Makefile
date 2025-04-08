@@ -1,7 +1,7 @@
-TARGETS = client server2
+TARGETS = client server
 CC = gcc
 CFLAGS = -Wall -Wextra -lm
-SRCS = client.c server2.c
+SRCS = client.c server.c
 OBJS = $(SRCS:.c=.o)
 
 all: $(TARGETS)
