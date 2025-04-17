@@ -3,99 +3,88 @@
 #include <string.h>
 #include <unistd.h>
 #include <arpa/inet.h>
+#include <time.h>
 
-#define BUFFER_SIZE 256
-
-void error(const char *msg) {
-    perror(msg);
-    exit(1);
-}
+#define MIN_NUM 1
+#define MAX_NUM 100
 
 int main(int argc, char *argv[]) {
+	if (argc != 2) {
+		printf("Usage: %s <port>\n", argv[0]);
+		return 1;
+	}
 
-    int sockfd, newsockfd, portno;
-    struct sockaddr_in serv_addr, cli_addr;
-    socklen_t clilen;
-    int count_client=1;
+	int sockfd = socket(AF_INET, SOCK_STREAM, 0);
+	struct sockaddr_in serv_addr = {
+		.sin_family = AF_INET,
+		.sin_addr.s_addr = INADDR_ANY,
+		.sin_port = htons(atoi(argv[1]))
+	};
 
-    if (argc < 2) {
-        fprintf(stderr, "ERROR, no port provided\n");
-        exit(1);
-    }
-  
-    sockfd = socket(AF_INET, SOCK_STREAM, 0);
-    if (sockfd < 0) 
-        error("ERROR opening socket");
+	bind(sockfd, (struct sockaddr*)&serv_addr, sizeof(serv_addr));
+	listen(sockfd, 5);
+	printf("Server started on port %s\n", argv[1]);
 
-    memset(&serv_addr, 0, sizeof(serv_addr));
-    portno = atoi(argv[1]);
-    serv_addr.sin_family = AF_INET;
-    serv_addr.sin_addr.s_addr = INADDR_ANY;
-    serv_addr.sin_port = htons(portno);
+	srand(time(NULL));
 
-    if (bind(sockfd, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) < 0) 
-        error("ERROR on binding");
-
-    listen(sockfd, 5);
-    clilen = sizeof(cli_addr);
-    
-      // Приведение типа и получение значений
-    struct sockaddr_in *client_info = (struct sockaddr_in *)&cli_addr;
-
-    // Получение IP-адреса клиента
-    char client_ip[INET_ADDRSTRLEN];
-    inet_ntop(AF_INET, &client_info->sin_addr, client_ip, sizeof(client_ip));
-    
-    // Получение порта клиента
-    int client_port = ntohs(client_info->sin_port);
-
-    while (1) {
-        newsockfd = accept(sockfd, (struct sockaddr *)&cli_addr, &clilen);
-        if (newsockfd < 0) 
-            error("ERROR on accept");
-
-        if (fork() == 0) {
-            close(sockfd); 
-            
-            char buffer[BUFFER_SIZE];
-            int number = rand() % 100 + 1;
-            int guess;
-
-            while (1) {
-                memset(buffer, 0, BUFFER_SIZE);
-                int bytes_read = read(newsockfd, buffer, BUFFER_SIZE - 1);
-                if (bytes_read <= 0) {
-                    perror("Read failed or client disconnected");
-                    break;
-                }
-                buffer[bytes_read] = '\0';
-
-                guess = atoi(buffer);
-                printf("Клиент %s:%d  ввёл: %d\n", client_ip, client_port ,guess);
-
-                if (guess < number) {
-                    strcpy(buffer, "Загаданое число больше!\n");
-                } else if (guess > number) {
-                    strcpy(buffer, "Загаданое число мельше!\n");
-                } else {
-                    strcpy(buffer, "Поздравляем! Вы угадали число!\n");
-                    count_client++;
-                    send(newsockfd, buffer, strlen(buffer), 0);
-                    break;
-                }
-
-                send(newsockfd, buffer, strlen(buffer), 0);
-            }
-
-            close(newsockfd);
-            
-            exit(0); 
-            count_client++;
-        }
-        close(newsockfd); 
-    }
-
-    close(sockfd); 
-    return 0;
+	while (1) {
+		struct sockaddr_in cli_addr;
+		socklen_t clilen = sizeof(cli_addr);
+		int newsockfd = accept(sockfd, (struct sockaddr*)&cli_addr, &clilen);
+		
+		if (fork() == 0) {
+		    close(sockfd);
+		    char buffer[256];
+		    int game_active = 1;
+		    
+		    while (game_active) {
+		        int number = rand() % MAX_NUM + MIN_NUM;
+		        printf("New number generated: %d\n", number);
+		        
+		        while (1) {
+		            memset(buffer, 0, 256);
+		            read(newsockfd, buffer, 255);
+		            
+		            if (!strcmp(buffer, "0\n")) {
+		                game_active = 0;
+		                break;
+		            }
+		            
+		            int guess = atoi(buffer);
+		            
+		            if (guess == 0 && buffer[0] != '0') {
+		                strcpy(buffer, "Error: Please enter a number\n");
+		            }
+		            else if (guess < MIN_NUM || guess > MAX_NUM) {
+		                snprintf(buffer, 256, "Error: Number must be between %d and %d\n", MIN_NUM, MAX_NUM);
+		            }
+		            else if (guess < number) {
+		                strcpy(buffer, "Higher!\n");
+		            }
+		            else if (guess > number) {
+		                strcpy(buffer, "Lower!\n");
+		            }
+		            else {
+		                strcpy(buffer, "Correct! Play again? (0 - no, 1 - yes)\n");
+		                write(newsockfd, buffer, strlen(buffer));
+		                
+		                memset(buffer, 0, 256);
+		                read(newsockfd, buffer, 255);
+		                
+		                if (strcmp(buffer, "1\n") == 0) {
+		                    strcpy(buffer, "New game started! Guess a number between 1 and 100\n");
+		                    write(newsockfd, buffer, strlen(buffer));
+		                    break; // Выходим из внутреннего цикла для генерации нового числа
+		                } else {
+		                    game_active = 0;
+		                }
+		            }
+		            write(newsockfd, buffer, strlen(buffer));
+		        }
+		    }
+		    close(newsockfd);
+		    exit(0);
+		}
+		close(newsockfd);
+	}
 }
-

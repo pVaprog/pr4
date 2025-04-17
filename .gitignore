@@ -38,3 +38,7 @@ obj/
 *.user
 *.sublime-settings
 *.sublime-project
+
+#Файлы при сборке
+server
+client

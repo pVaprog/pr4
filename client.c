@@ -1,78 +1,75 @@
 #include <stdio.h>
 #include <stdlib.h>
-#include <unistd.h>
 #include <string.h>
-#include <sys/types.h>
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <netdb.h> 
+#include <unistd.h>
+#include <arpa/inet.h>
+#include <ctype.h>  // Добавили для isdigit()
 
-void error(const char *msg) {
-    perror(msg);
-    exit(0);
+#define MIN_NUM 1
+#define MAX_NUM 100
+
+int is_number(const char *s) {
+	if (*s == '\n') return 0;  // Пустая строка
+
+	while (*s && *s != '\n') {  // Проверяем до символа новой строки
+		if (!isdigit(*s)) return 0;
+		s++;
+	}
+	return 1;
 }
 
 int main(int argc, char *argv[]) {
-    int sockfd, portno;
-    ssize_t n;
-    struct sockaddr_in serv_addr;
-    struct hostent *server;
+	if (argc != 3) {
+		printf("Usage: %s <host> <port>\n", argv[0]);
+		return 1;
+	}
 
-    const size_t buffer_length = 256;
-    char buffer[buffer_length];
+	int sockfd = socket(AF_INET, SOCK_STREAM, 0);
+	struct sockaddr_in serv_addr = {
+		.sin_family = AF_INET,
+		.sin_port = htons(atoi(argv[2]))
+	};
+	inet_pton(AF_INET, argv[1], &serv_addr.sin_addr);
 
-    if (argc < 3) {
-        fprintf(stderr, "usage %s hostname port\n", argv[0]);
-        exit(0);
-    }
+	connect(sockfd, (struct sockaddr*)&serv_addr, sizeof(serv_addr));
+	printf("Connected! Guess number (%d-%d). Enter 0 to exit.\n", MIN_NUM, MAX_NUM);
 
-    portno = atoi(argv[2]);
-    sockfd = socket(AF_INET, SOCK_STREAM, 0);
-    if (sockfd < 0) { 
-        error("ERROR opening socket");
-    }
-
-    server = gethostbyname(argv[1]);
-    if (server == NULL) {
-        fprintf(stderr, "ERROR, no such host\n");
-        exit(0);
-    }
-
-    bzero((char *)&serv_addr, sizeof(serv_addr));
-    serv_addr.sin_family = AF_INET;
-    bcopy((char *)server->h_addr, (char *)&serv_addr.sin_addr.s_addr, (size_t)server->h_length);
-    serv_addr.sin_port = htons(portno);
-    
-    if (connect(sockfd, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) < 0) { 
-        error("ERROR connecting");
-    }
-    
-    printf("Подключено к серверу. Игра началась! Угадайте число от 1 до 100:\n");
-    
-
-  
-    while (1) {
-        printf("Введите вашу догадку: ");
-        
-        fgets(buffer, buffer_length, stdin);
-
-        send(sockfd, buffer, strlen(buffer), 0);
-
-        n = read(sockfd, buffer, buffer_length - 1); 
-        if (n <= 0) {
-            perror("Ошибка чтения или сервер отключился");
-            break;
-        }
-        buffer[n] = '\0';
-
-        printf("Ответ от сервера: %s", buffer);
-
-        if (strstr(buffer, "Поздравляем!") != NULL) {
-            break;
-        }
-    }
-
-    close(sockfd);
-    return 0;
+	char buffer[256];
+	while (1) {
+		printf("Your guess: ");
+		if (!fgets(buffer, 255, stdin)) break;  // Если ошибка ввода
+		
+		// Удаляем символ новой строки
+		buffer[strcspn(buffer, "\n")] = '\0';
+		
+		if (!strcmp(buffer, "0")) {
+		    write(sockfd, "0\n", 2);
+		    break;
+		}
+		
+		if (!is_number(buffer)) {
+		    printf("Error: Please enter a valid number\n");
+		    continue;
+		}
+		
+		// Добавляем \n обратно для сервера
+		strcat(buffer, "\n");
+		write(sockfd, buffer, strlen(buffer));
+		
+		read(sockfd, buffer, 255);
+		printf("Server: %s", buffer);
+		
+		if (strstr(buffer, "Correct!")) {
+		    printf("Play again? (0 - no, 1 - yes): ");
+		    if (!fgets(buffer, 255, stdin)) break;
+		    write(sockfd, buffer, strlen(buffer));
+		    
+		    if (!strcmp(buffer, "0\n")) break;
+		    
+		    read(sockfd, buffer, 255);
+		    printf("Server: %s", buffer);
+		}
+	}
+	close(sockfd);
+	return 0;
 }
-
