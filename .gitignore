@@ -40,5 +40,5 @@ obj/
 *.sublime-project
 
 #Файлы при сборке
-server
-client
+/server
+/client
